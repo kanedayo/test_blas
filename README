@@ -1,0 +1,126 @@
+逆行列の組立方針
+
+(1) ?getrf, ?getri の組合せで逆行列を求める。
+
+(2a) csiを求める必要がなければ、素直に以下を解けば良い。(ZF)
+y = H*x;
+xhat = Hest \ y    % _GESV % A*x = b % (Hest)*(xhat) = y
+
+(2b) csiを求める必要がなければ、素直に以下を解けば良い。(MMSE)
+HHH=(H'*H+sigma*I) % _HERK % C = A'*B+ beta*C % エルミート(正定値?)
+HY = H'*y          % _GEMV % C = A'*B
+HHH*(xhat) = H'*y  % _POSV % A*x = b
+
+(3a) csiを求めるなら、以下。(ZF/MMSE) : MATLAB方式
+HHH=(H'*H+sigma*I) % _HERK % C = A'*A+ beta*C % エルミート(正定値?)
+HY = H'*y          % _GEMV % C = A'*B
+INV = inv(HHH)     % _POSV % A*x = b % (HHH)*(INV) = (I)
+csi = 1./real(diag(INV));
+xhat = INV*HY      % BLAS  % C = A * B
+
+(3b) csiを求めるなら、以下。(ZF/MMSE) : 提案手法
+HHH=(H'*H+sigma*I);  % CHERK % C = A'*A+ beta*C % エルミート(正定値?)
+
+%G=HHH\H';         % CHESV % A*X = B % (HHH)*(G) = (H')
+%csi3c = 1./sum((conj(G).*G),2);
+%xhat3c = G * y ;  % CGEMV % C = A*B
+
+GH=H/HHH;          % CHESV % X*A = B % (GH)*(HHH) = (H)
+%csi3c = 1./diag(GH'*GH); % CGEMV % C = A' * B
+csi3c = 1./sum(conj(GH).*GH,2); % CGEMV % C = A' * B
+xhat3c = GH' * y ; % CGEMV % C = A'*B
+
+--
+BLASの簡単な使い方
+http://azalea.s35.xrea.com/blas/
+
+---
+In-place Transpose: dge_trans
+対角成分を直接SWAPする。入力された行列を直接操作。
+---
+BLAS level 1: single-loop
+ set to zero (bzero),
+ set to a constant (memset),
+ copy vectors (dcopy),
+ inner-product (ddot),
+ ax+y (daxpy),
+ ax+by (daxpby)
+BLAS level 2: double-loop
+ matrix copy (dge_copy),
+ matrix transpose (deg_trans),
+ outerproduct (dger),
+ matrix-vector product (dgemv)
+BLAS level 3: triple-loop
+ matrix-matrix product (dgemm): optimized in-cache matrix solver.
+ For use with dge_copy to create a blocked matrix-matrix multiply.
+---
+LAPACK
+simple/divede and conqure/RRR(relatively robust representation)/Expert
+
+配列添え字は、FORTRAN:1-base, C/C++:0-base
+C/C++では普通row major
+FORTRANや、Matlab, octaveはcolumn major
+orderingが異なる場合、以下の様な行列転置が発生しオーバーヘッドとなる。
+C=( (A).' * (B).' ).'
+
+----
+Call LAPACK and BLAS Functions
+https://www.mathworks.com/help/matlab/matlab_external/calling-lapack-and-blas-functions-from-mex-files.html
+MATLAB2017b以前は、re/im別管理型。
+MATLAB2018a以降は、re/imインタリーブ型。Fortrunもこの形式。
+'''
+mex -v -R2017b matrixMultiply.c -lmwblas
+mex -v -R2017b matrixDivide.c -lmwlapack
+'''
+
+
+
+-----
+ドライバルーチンには，通常の単純ドライバに加えて，
+幾つかの機能を追加したエキスパート・ドライバがあります．
+エキスパート・ドライバは，条件数の算定，行列の特異性のチェック，
+解の反復改良，誤差解析などの機能をサポートします．
+ただしエキスパート・ドライバを実行するためには，単純ドライバの約2倍の記憶容量が必要
+
+-----
+https://ja.wikipedia.org/wiki/行列の定値性
+
+ --
+ S: 単精度実数
+ D: 倍精度実数
+ C: 単精度複素数
+ Z: 倍精度複素数
+ ---
+ SY: 対称行列
+ HE: エルミート行列
+ GT: 三重対角行列
+ ST: 対称三重対角行列
+ GE: 一般行列
+ --
+ SV: 線形方程式問題
+ EV: 固有値問題
+-----
+LAPACK 3.9.0
+http://www.netlib.org/lapack/explore-html
+[LAPACK]->[Files]->[File List]->[LAPACKE]->[example]-> example_DGELS_colmajor.c
+-----
+
+A * X = B % A[ LDA x N ] * X[ N x NRHS ] = B[ LDB x NRHS ]
+
+DGESV ( N, NRHS, A,LDA, IPIV, B,LDB, INFO )
+通常、N=LDA=LDB, IPIV[ N ]
+
+このサブルーチンの出力変数は
+• ２次元配列 A には行列 A を代入した状態でサブルーチンに値を渡しますが、実行後には値が書き換え
+られ、行列 A を LU 分解した結果が代入されます。L 行列と U 行列はそれぞれ下三角行列、上三角行
+列で、対角要素を除いて一つの N × N 行列に値を入れることができますが、L の対角要素は 1 である
+ため、U の対角要素が A として返されます。
+• ２次元配列 B には行列 B の値を入力しましたが、出力では方程式の解の X の値が返されます。
+• INFO にはプログラムの実行結果が保存されます。正常終了した場合は 0 が入っています。負の数-i が
+返された場合は、i 行目で不正な値があったことを示します。また正の数 i が返された場合、LU 分解の
+U 行列の Uii がゼロとなり (つまり det A = 0 となり) 連立一次方程式の解が求まらなかったことを示
+します。
+-----
+
+
+
