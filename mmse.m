@@ -11,10 +11,10 @@ x=randn(L,1) + 1j*randn(L,1);
 y=H*x;
 clear x
 
-%%(3a) csiã‚’æ±‚ã‚ã‚‹ãªã‚‰ã€ä»¥ä¸‹ã€‚(ZF/MMSE)
+%%(3a) csi‚ğ‹‚ß‚é‚È‚çAˆÈ‰ºB(ZF/MMSE)
 pause(.5); tic
 for i=1:iter
-HHH=(H'*H+sigma*I);% _HERK % C = A'*A+ beta*C % ã‚¨ãƒ«ãƒŸãƒ¼ãƒˆ(æ­£å®šå€¤?)
+HHH=(H'*H+sigma*I);% _HERK % C = A'*A+ beta*C % ƒGƒ‹ƒ~[ƒg(³’è’l?)
 INV = (HHH)\I;     % CHESV % A*x = b % (HHH)*(INV) = (I)
 G = INV*H';        % _GEMV % C = A*B'
 %csi3a = 1./real(diag(INV)); % isreal(csi)=1 : heavy!!
@@ -24,10 +24,10 @@ end
 t3a=toc
 clear HHH INV G
 
-%%(3b) csiã‚’æ±‚ã‚ã‚‹ãªã‚‰ã€ä»¥ä¸‹ã€‚(ZF/MMSE)
+%%(3b) csi‚ğ‹‚ß‚é‚È‚çAˆÈ‰ºB(ZF/MMSE)
 pause(.5); tic
 for i=1:iter
-HHH=(H'*H+sigma*I);% _HERK % C = A'*A+ beta*C % ã‚¨ãƒ«ãƒŸãƒ¼ãƒˆ(æ­£å®šå€¤?)
+HHH=(H'*H+sigma*I);% _HERK % C = A'*A+ beta*C % ƒGƒ‹ƒ~[ƒg(³’è’l?)
 INV = (HHH)\I;     % CHESV % A*x = b % (HHH)*(INV) = (I)
 HY = H'*y;         % _GEMV % C = A'*B
 %csi3b = 1./real(diag(INV)); % isreal(csi)=1 : heavy!!
@@ -37,10 +37,10 @@ end
 t3b=toc
 clear HHH HY INV
 
-%%(3c) csiã‚’æ±‚ã‚ã‚‹ãªã‚‰ã€ä»¥ä¸‹ã€‚(ZF/MMSE)
+%%(3c) csi‚ğ‹‚ß‚é‚È‚çAˆÈ‰ºB(ZF/MMSE)
 pause(.5); tic
 for i=1:iter
-HHH=(H'*H+sigma*I);% _HERK % C = A'*A+ beta*C % ã‚¨ãƒ«ãƒŸãƒ¼ãƒˆ(æ­£å®šå€¤?)
+HHH=(H'*H+sigma*I);% _HERK % C = A'*A+ beta*C % ƒGƒ‹ƒ~[ƒg(³’è’l?)
 G = (HHH)\H';      % CHESV % A*X = B % (HHH)*(G) = (H')
 %csi3c = 1./real(diag(G*G')); % heavy
 %csi3c = 1./sum(real(conj(G).*G),2); % heavy
@@ -51,10 +51,10 @@ end
 t3c=toc
 clear HHH G GH
 
-%%(3c) csiã‚’æ±‚ã‚ã‚‹ãªã‚‰ã€ä»¥ä¸‹ã€‚(ZF/MMSE)
+%%(3c) csi‚ğ‹‚ß‚é‚È‚çAˆÈ‰ºB(ZF/MMSE)
 pause(.5); tic
 for i=1:iter
-HHH=(H'*H+sigma*I);% _HERK % C = A'*A+ beta*C % ã‚¨ãƒ«ãƒŸãƒ¼ãƒˆ(æ­£å®šå€¤?)
+HHH=(H'*H+sigma*I);% _HERK % C = A'*A+ beta*C % ƒGƒ‹ƒ~[ƒg(³’è’l?)
 
 %G=HHH\H'; % CHESV % A*X = B % (HHH)*(G) = (H')
 %csi3c = 1./sum((conj(G).*G),2);
@@ -62,7 +62,8 @@ HHH=(H'*H+sigma*I);% _HERK % C = A'*A+ beta*C % ã‚¨ãƒ«ãƒŸãƒ¼ãƒˆ(æ­£å®šå€¤?)
 
 GH=H/HHH; % CHESV % X*A = B % (GH)*(HHH) = (H)
 %csi3c = 1./diag(GH'*GH);
-csi3c = 1./sum(conj(GH).*GH);
+csi3c = 1./sum(conj(GH).*GH); % size(csi3c)=[1,2]
+csi3c = csi3c(:); % size(csi3c)=[2,1]
 xhat3c = GH' * y ;% _GEMV % C = A'*B
 
 end
@@ -75,4 +76,5 @@ diff_xhat= norm(xhat3a-xhat3b)
 diff_csi = norm(csi3a -csi3c)
 diff_xhat= norm(xhat3a-xhat3c)
 disp('   csi3a    csi3b    csi3c (top10)')
-disp(real([csi3a csi3b csi3c](1:min(10,end),:)))
+csiXX=real([csi3a(:) csi3b(:) csi3c(:)]);
+disp(csiXX(1:min(10,end),:))
