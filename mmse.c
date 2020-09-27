@@ -28,45 +28,45 @@ int main(void){
   P=4; L=2; sig=0;
   X=(1:L).';
   H = reshape(1:P*L,P,L);H=H+1j*H;
-
   Y = H*X; I = eye(L);
 
-  HHH = H'*H + sig*I;           % CHERK % C = A' * A + beta * C
-  GH=H/HHH;                     % CHESV % X*A = B % (GH)*(HHH) = (H)
-  %csi = 1./diag(GH'*GH);       % CGEMV % C = A' * B
-  csi = 1./sum(conj(GH).*GH).'; % CDOTC % c = a' * b
-  xhat = GH' * y ;              % CGEMV % C = A' * B
-
-  [csi0  csi ]
-  [xhat0 xhat]
+  HHH = H'*H + sig*I            % CHERK % C = A' * A + beta * C
+  %GH=H/HHH                      % CHESV(?)% X*A = B % (GH)*(HHH) = (H)
+  HU=chol(HHH)                  % CPOTRF
+  GH=(H/HU)/HU'                 % CTRSM % (GH*HU') * HU = H
+  %csi = 1./diag(GH'*GH)         % CGEMV % C = A' * B
+  csi = 1./sum(conj(GH).*GH).'  % CDOTC % c = a' * b
+  xhat = GH' * Y                % CGEMV % C = A' * B
 
   */
 
-  ptrdiff_t const0=0, const1=1, inc1 = 1; // Const
-  complex Const0[1]={{0,0}}, Const1[1]={{1,0}}; // Complex-Const
+  const ptrdiff_t const0=0, const1=1, inc1 = 1; // Const
+  const complex Const0[1]={{0,0}}, Const1[1]={{1,0}}; // Complex-Const
 
-  ptrdiff_t P=8, L=4;
+  ptrdiff_t P=4, L=2;
   ptrdiff_t ldH;
   complex sigma={0,0}; // nVar
   complex H[P_MAX*L_MAX]={0}; ldH=P;
   complex X[L_MAX] = {0};
   {
     // H[PxL] , X[Lx1]
+#if 1
     //complex Hrm[4*2] = { // RowMajor
     //  {1,1}, {5,5},
     //  {2,2}, {6,6},
     //  {3,3}, {7,7},
     //  {4,4}, {8,8}};// ldH=2;
-    //complex Hcm[4*2] = { // ColMajor
-    //  {1,1}, {2,2}, {3,3}, {4,4},
-    //  {5,5}, {6,6}, {7,7}, {8,8}};// ldH=4;
-    //ptrdiff_t PL = P*L;
-    //ccopy( &PL, (float*)Hcm,&inc1, (float*)H,&inc1 ); ldH=4;
+    complex Hcm[4*2] = { // ColMajor
+      {1,1}, {2,2}, {3,3}, {4,4},
+      {5,5}, {6,6}, {7,7}, {8,8}};// ldH=4;
+    ptrdiff_t PL = P*L;
+    ccopy( &PL, (float*)Hcm,&inc1, (float*)H,&inc1 ); ldH=4;
 
-    //complex Xv[L*1] = { // Vector
-    //  {1,0},
-    //  {2,0}};
-    //ccopy( &L, (float*)Xv,&inc1, (float*)X,&inc1);
+    complex Xv[2*1] = { // Vector
+      {1,0},
+      {2,0}};
+    ccopy( &L, (float*)Xv,&inc1, (float*)X,&inc1);
+#else
 
 #define C(re,im) ((complex){re,im})
     //H[0]=C(1,1); H[4]=C(5,5);
@@ -81,11 +81,14 @@ int main(void){
     for(int p=0; p<P_MAX; p++){
       for(int l=0; l<L_MAX; l++){
         H[P_MAX*l+p]=C(rand(),rand());
+        //H[P_MAX*l+p]=C(100*rand(),100*rand());
       }
     }
     for(int l=0; l<L_MAX; l++){
       X[l]=C((l+1),0);
+      //X[l]=C((l*100+100 +l*10+10 +l+1),0);
     }
+#endif
   }
 
   complex Y[P_MAX*1] = {0};
@@ -98,6 +101,7 @@ int main(void){
         (float*)X, &inc1,  // B
         (float*)Const0,    // beta
         (float*)&Y, &inc1);// C
+    printf("DebugPrint:Y\n");
     DebugPrint( Y, P, 1 );
   }
 
@@ -123,6 +127,7 @@ int main(void){
 #endif
     ptrdiff_t len = L*L;
     ccopy( &len, (float*)E,&inc1, (float*)HHH,&inc1 );
+    printf("DebugPrint:HHH\n");
     DebugPrint( HHH, L, L );
   }
 
@@ -137,8 +142,7 @@ int main(void){
     cpotrf(UPLO, &L,      // UpLo, N
         (float*)HU,&ldHHH,// A[N,N] -> AL or AU
         &info);
-    printf("DebugPrint:cpotrf.info=%d\n",(int)info);
-    printf("DebugPrint:HU\n");
+    printf("DebugPrint:HU:cpotrf.info=%d\n",(int)info);
     DebugPrint( HU, L, L );
   }
 
@@ -162,7 +166,7 @@ int main(void){
         (float*)Const1,
         (float*)HU,&L,
         (float*)GH,&P);
-    printf("DebugPrint:H/HU/HU'\n");
+    printf("DebugPrint:GH=H/HU/HU'\n");
     DebugPrint( GH, P, L );
   }
 
@@ -181,100 +185,32 @@ int main(void){
     DebugPrint( Xhat, L, 1 );
   }
 
-  if(0){ // SYTRS
+  complex CSI[L_MAX*1]={0};
+  { // CSI = 1./sum(conj(GH).*GH).';
+    // DOT[i] = GH(:,i)' * GH(:,i) % CDOTC % c = a' * b
+    // CSI[i] = 1/DOT
 
-    ptrdiff_t ipiv[2*2]={0};
-    complex work[16*16];
-    ptrdiff_t lwork = sizeof(work);
-    ptrdiff_t info;
-    csytrf(UPLO, &L,
-        (float*)HHH, &L, // HHH => L*L'
-        ipiv,
-        (float*)work, &lwork,
-        &info);
-    printf("DebugPrint:L\n");
-    DebugPrint( HHH, L, L );
-
-    {
-      complex TMP[2*2]={0}; ptrdiff_t ldTMP=2;
-      ptrdiff_t len = 2*2;
-      ccopy( &len, (float*)HHH,&inc1, (float*)TMP,&inc1 );
-
-      ctrmm( "R","L","H","N", &L,&L,
-          (float*)Const1, // alpha
-          (float*)HHH,&ldTMP,
-          (float*)TMP,&ldTMP);
-      printf("DebugPrint:L*L'\n");
-      DebugPrint( TMP, L, L );
-
+    for(int i=0; i<L; i++){
+#if 0
+      complex dot = cdotc( &P, (float*)&(GH[P*i]), &inc1, (float*)&(GH[P*i]), &inc1 );
+#else
+      complex dot = {0,0};
+      complex*ptr = GH+(P*i);
+      for(int p=0; p<P; p++,ptr++){
+        float re = ptr->r;
+        float im = ptr->i;
+        dot.r += (re*re)+(im*im);
+      }
+#endif
+      CSI[i].r = 1.0/dot.r;
+      CSI[i].i = 0.0;
     }
+    printf("DebugPrint:CSI\n");
+    DebugPrint( CSI, L, 1 );
 
+    printf("CSI=\n 3.6782\n 21.3333\n");
 
-    csytrs(UPLO,&L, &L,
-        (float*)HHH, &L,
-        ipiv,
-        (float*)GH, &L,
-        &info);
-    DebugPrint( GH, L, L );
-
-
-    /*
-       extern void csytrf(
-       const char   *uplo,
-       const ptrdiff_t *n,
-       float  *a,
-       const ptrdiff_t *lda,
-       ptrdiff_t *ipiv,
-       float  *work,
-       const ptrdiff_t *lwork,
-       ptrdiff_t *info
-       );
-       */
-      /*
-         extern void csytrs(
-         const char   *uplo,
-         const ptrdiff_t *n,
-         const ptrdiff_t *nrhs,
-         const float  *a,
-         const ptrdiff_t *lda,
-         const ptrdiff_t *ipiv,
-         float  *b,
-         const ptrdiff_t *ldb,
-         ptrdiff_t *info
-         );
-         */
-
-    /*
-       extern void ctrsm(
-       const char   *side,
-       const char   *uplo,
-       const char   *transa,
-       const char   *diag,
-       const ptrdiff_t *m,
-       const ptrdiff_t *n,
-       const float  *alpha,
-       const float  *a,
-       const ptrdiff_t *lda,
-       float  *b,
-       const ptrdiff_t *ldb
-       );
-       */
-
-    /*
-       extern void cposv(
-       const char   *uplo,
-       const ptrdiff_t *n,
-       const ptrdiff_t *nrhs,
-       float  *a,
-       const ptrdiff_t *lda,
-       float  *b,
-       const ptrdiff_t *ldb,
-       ptrdiff_t *info
-       );
-       */
   }
-
-
   return 0;
 }
 /*
