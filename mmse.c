@@ -24,7 +24,7 @@ void DebugPrint(complex *X, int M, int N){ // ldX==N
 
 int main(void){
   /*
-  //xhat = pinv(H'*H+sig*I)*H'*y
+  //Xhat = inv(H'*H+sig*I)*H'*Y
   P=4; L=2; sig=0;
   X=(1:L).';
   H = reshape(1:P*L,P,L);H=H+1j*H;
@@ -32,15 +32,16 @@ int main(void){
 
   HHH = H'*H + sig*I            % CHERK % C = A' * A + beta * C
   %GH=H/HHH                      % CHESV(?)% X*A = B % (GH)*(HHH) = (H)
-  HU=chol(HHH)                  % CPOTRF
-  GH=(H/HU)/HU'                 % CTRSM % (GH*HU') * HU = H
-  %csi = 1./diag(GH'*GH)         % CGEMV % C = A' * B
-  csi = 1./sum(conj(GH).*GH).'  % CDOTC % c = a' * b
-  xhat = GH' * Y                % CGEMV % C = A' * B
 
+  [L,U]=lu(HHH)                 % CHETRF
+  INV=F(L,U)                    % CHETRI
+
+  csi = 1./diag(INV)            %
+  GH = H * INV                  % CHEMM % C = B * A % A=A'
+  Xhat = GH' * Y                % CGEMV % C = A' * B
   */
 
-  const ptrdiff_t const0=0, const1=1, inc1 = 1; // Const
+  const ptrdiff_t inc1 = 1; // Const
   const complex Const0[1]={{0,0}}, Const1[1]={{1,0}}; // Complex-Const
 
   ptrdiff_t P=4, L=2;
@@ -110,7 +111,9 @@ int main(void){
     // HHH = (1.0) * H'* H + sigma* I
     // C   = alpha * A'* B + beta * C // _GEMM : C[m,n]
     // C   = alpha * A'* A + beta * C // _HERK : C[m,n]
-    complex E[L_MAX*L_MAX]={{1,0},{0}, {0},{1,0}}; ptrdiff_t ldE=L;
+    //complex E[L_MAX*L_MAX]={{0,0}}; ptrdiff_t ldE=L;
+    complex *E=HHH; ptrdiff_t ldE=L;
+    for(int i=0; i<L; i++) E[L*i + i].r = 1; // E=eye(L_MAX)
 #if 0
     cgemm("C", "N", &L,&L,&P, // Trans, Trans, M, N, K
         (float*)Const1,  // alpha
@@ -125,55 +128,61 @@ int main(void){
         (float*)&sigma,  // beta
         (float*)E, &ldE);// C
 #endif
-    ptrdiff_t len = L*L;
-    ccopy( &len, (float*)E,&inc1, (float*)HHH,&inc1 );
+    //ptrdiff_t len = L*L;
+    //ccopy( &len, (float*)E,&inc1, (float*)HHH,&inc1 );
     printf("DebugPrint:HHH\n");
     DebugPrint( HHH, L, L );
   }
 
-  complex HU[L_MAX*L_MAX]={0}; ptrdiff_t ldHU=L;
-  { // HU = chol(HHH);
-    // HHH=HU'*HU
-    // A = L*L' = U'*U // _POTRF : A[n,n]
-    ptrdiff_t len = ldHHH*ldHHH;
-    ccopy( &len, (float*)HHH,&inc1, (float*)HU,&inc1 );
+  //complex INV[L_MAX*L_MAX]={0}; ptrdiff_t ldINV=L;
+  complex *INV=HHH; ptrdiff_t ldINV=ldHHH;
+  { // L,U = chol(HHH);
+    // HHH = HL * HU
+    // INV = I/HU/HL
+    // A = L * U // _HETRF : A[n,n]
+    // inv(A)    // _HETRI : A[n,n]
+    //ptrdiff_t len = ldHHH*ldHHH;
+    //ccopy( &len, (float*)HHH,&inc1, (float*)INV,&inc1 );
     ptrdiff_t info;
 
-    cpotrf(UPLO, &L,      // UpLo, N
-        (float*)HU,&ldHHH,// A[N,N] -> AL or AU
+    ptrdiff_t ipiv[L_MAX];
+    ptrdiff_t lworkd = 64;
+    complex   work[L_MAX*64];
+    chetrf(UPLO, &L,      // UpLo, N
+        (float*)INV,&ldINV,// A[N,N] -> AL or AU
+        ipiv,
+        (float*)work, &lworkd,
         &info);
-    printf("DebugPrint:HU:cpotrf.info=%d\n",(int)info);
-    DebugPrint( HU, L, L );
+    printf("DebugPrint:LU:chetrf.info=%d\n",(int)info);
+    DebugPrint( INV, L, L );
+
+    chetri(UPLO, &L,      // UpLo, N
+        (float*)INV,&ldINV,// A[N,N] -> AL or AU
+        ipiv,
+        (float*)work,
+        &info);
+    printf("DebugPrint:INV\n");
+    DebugPrint( INV, L, L );
   }
 
   complex GH[P_MAX*L_MAX]={0}; ptrdiff_t ldGH=P;
-  { // GH=H/HU/HU'
-    // (GH*HU')*HU = H % TRSM
-    ptrdiff_t len = P*L;
-    ccopy( &len, (float*)H,&inc1, (float*)GH,&inc1 );
+  { // GH=H*INV
+    // C=B*A % HEMM
 
-    char *TRANS0 =(UPLO[0]=='U')? "N":"C";
-    char *TRANS1 =(UPLO[0]=='U')? "C":"N";
-
-    ctrsm("R",UPLO,TRANS0,"N", &P,&L,
+    chemm("R",UPLO, &P,&L,
         (float*)Const1,
-        (float*)HU,&L,
-        (float*)GH,&P);
-    printf("DebugPrint:H/HU\n");
-    DebugPrint( GH, P, L );
-
-    ctrsm("R",UPLO,TRANS1,"N", &P,&L,
-        (float*)Const1,
-        (float*)HU,&L,
-        (float*)GH,&P);
-    printf("DebugPrint:GH=H/HU/HU'\n");
+        (float*)INV,&ldINV, // A
+        (float*)H,&P,       // B
+        (float*)Const0,
+        (float*)GH,&ldGH);
+    printf("DebugPrint:GH\n");
     DebugPrint( GH, P, L );
   }
 
   complex Xhat[L_MAX*1]={0};
-  { // Xhat=GH'*Y
+  { // Xhat=GH*Y
     // Xhat=(1.0)*A'*B + (0.0)*Xhat
-    // C   = alpha*A*B + beta*C // _GEMV : C[m,n]
+    // C   = alpha*A*B + beta*C // _GEMV : A[m,n]
 
     cgemv("C", &P, &L,    // Trans, M, N
         (float*)Const1,   // alpha
@@ -186,23 +195,13 @@ int main(void){
   }
 
   complex CSI[L_MAX*1]={0};
-  { // CSI = 1./sum(conj(GH).*GH).';
-    // DOT[i] = GH(:,i)' * GH(:,i) % CDOTC % c = a' * b
-    // CSI[i] = 1/DOT
+  { // CSI = 1./real(diag(INV));
+    // DIAG   = INV(i,i)
+    // CSI[i] = 1/DIAG
 
     for(int i=0; i<L; i++){
-#if 0
-      complex dot = cdotc( &P, (float*)&(GH[P*i]), &inc1, (float*)&(GH[P*i]), &inc1 );
-#else
-      complex dot = {0,0};
-      complex*ptr = GH+(P*i);
-      for(int p=0; p<P; p++,ptr++){
-        float re = ptr->r;
-        float im = ptr->i;
-        dot.r += (re*re)+(im*im);
-      }
-#endif
-      CSI[i].r = 1.0/dot.r;
+      float diag = INV[(L*i)+i].r;
+      CSI[i].r = 1.0/diag;
       CSI[i].i = 0.0;
     }
     printf("DebugPrint:CSI\n");
@@ -211,29 +210,6 @@ int main(void){
     printf("CSI=\n 3.6782\n 21.3333\n");
 
   }
+
   return 0;
 }
-/*
-H=reshape(1:8,4,2); H=H+1j*H;
-X=[1;2];
-Y=H*X;
-
-HHH=H'*H;
-[HL,HU]=lu  (HHH); % HHH=HL *HU
-[   HU]=chol(HHH); % HHH=HU'*HU
-// _POTRF+_POTRS(LL), _SYTRF+_SYTRS(LDL),
-GH=(H/HU/HL );
-GH=(H/HU/HU');
-CSI = 1./diag(     GH' *GH)  ; % CGEMV % C = A' * B
-CSI = 1./ sum(conj(GH).*GH).'; % CDOTC % c = a' * b
-xhat=GH'*Y;
-
-
-% xhat
-% = H\Y
-% = HHH\H'*Y
-% = (H/HHH)'*Y
-% = (H/(HL*HU))'*Y
-% = (H/HU/HL)'*Y
-
-*/
